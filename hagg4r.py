@@ -57,8 +57,12 @@ def save_results(credentials, filename):
 def main(args):
     session = requests.Session()
 
+    # Get public IP address of the target system
     target_ip = socket.gethostbyname(socket.gethostname())
     print(f"[*] Target IP: {target_ip}")
+
+    # Use the target IP for port scanning
+    args.target = target_ip
 
     response = bypass_protection(session, args.url)
 
@@ -77,7 +81,7 @@ def main(args):
 
     links = [urljoin(args.url, a["href"]) for a in soup.find_all("a", href=True)]
 
-    open_ports = scan_ports(target_ip)
+    open_ports = scan_ports(args.target)
     print(f"[+] Open ports: {', '.join(open_ports)}")
 
     for link in links:
@@ -96,8 +100,9 @@ def main(args):
                     break
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Automated web scanner for admin pages and credential extraction")
+    parser = argparse.ArgumentParser(description="AutAutomated web scanner for admin pages and credential extraction")
     parser.add_argument("url", help="Target URL")
+    parser.add_argument("--target", help="Target IP or hostname for port scanning (default: public IP of the target system)")
     args = parser.parse_args()
 
     main(args)
