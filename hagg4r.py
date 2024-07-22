@@ -10,6 +10,7 @@ from urllib.parse import urljoin, urlparse
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
+from scrapy.utils.response import open_in_browser
 
 def is_login_page(response):
     # Controllo semplice per le pagine di accesso, è possibile aggiungere ulteriori condizioni
@@ -40,12 +41,17 @@ class AdminLoginSpider:
 
     def __init__(self):
         self.driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+        self.visited_urls = set()
 
     def start_requests(self):
         yield self.driver.get(self.start_urls[0])
 
     def parse(self, response):
         soup = BeautifulSoup(self.driver.page_source, "html.parser")
+        current_url = response.url
+
+        # Aggiungi l'URL corrente alla lista dei URLs visitati
+        self.visited_urls.add(current_url)
 
         # Trova il modulo di accesso e estrae le credenziali
         form = soup.find("form", {"method": "post"})
@@ -73,9 +79,11 @@ class AdminLoginSpider:
                 self.driver.quit()
                 return
 
-        # Segui i collegamenti e crawla ulteriormente
+        # Segui i collegamenti e crawla ulteriormente, evitando i collegamenti già visitati
         for link in soup.find_all("a", href=True):
-            yield self.driver.get(link["href"])
+            next_url = urljoin(current_url, link["href"])
+            if next_url not in self.visited_urls:
+                yield self.driver.get(next_url)
 
 def main(args):
     process = CrawlerProcess()
