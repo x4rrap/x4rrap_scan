@@ -6,27 +6,14 @@ import re
 import argparse
 
 def banner():
-    ascii_banner = pyfiglet.figlet_format("Hagg4rweb-Scanner")
-    print(colored(ascii_banner, 'green'))
+    ascii_banner = pyfiglet.figlet_format("hagg4r-Scan")
+    print("by hagg4r")
+    print(colored(ascii_banner, 'red'))
 
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Web Recon Scanner")
     parser.add_argument("target", help="Target website to scan")
     return parser.parse_args()
-
-def bypass_cloudflare(target):
-    session = requests.Session()
-    session.headers.update({'User-Agent': 'Mozilla/5.0'})
-    try:
-        response = session.get(f"https://api.bypasscf.com/api/{target}?key=YOUR_BYPASSCF_API_KEY")
-        if response.status_code == 200:
-            return response.json()['result']
-        else:
-            print(colored("Failed to bypass Cloudflare.", 'red'))
-            return None
-    except Exception as e:
-        print(colored(f"Error: {e}", 'red'))
-        return None
 
 def find_emails(target):
     try:
@@ -59,7 +46,7 @@ def find_admin_pages(target):
         soup = BeautifulSoup(response.text, 'html.parser')
         for link in soup.find_all('a'):
             href = link.get('href')
-            if href and 'admin' in href.lower():
+            if href and ('admin' in href.lower() or '/admin' in href.lower() or '/login' in href.lower()):
                 admin_pages.append(href)
     except Exception as e:
         print(colored(f"Error: {e}", 'red'))
@@ -70,9 +57,6 @@ def main():
     args = parse_arguments()
     target = args.target
     print(colored(f"\n[] Target: {target}", 'yellow'))
-    bypassed_target = bypass_cloudflare(target)
-    if bypassed_target:
-        target = bypassed_target
     print(colored("\n[] Found emails:", 'yellow'))
     emails = find_emails(target)
     for email in emails:
