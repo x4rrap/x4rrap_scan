@@ -11,7 +11,7 @@ print("python web_recon_sql_injection_improved.py https://target.com")
 
 
 def banner():
-    ascii_banner = pyfiglet.figlet_format("x4**p-scan")
+    ascii_banner = pyfiglet.figlet_format("Web Recon Scanner")
     print(colored(ascii_banner, 'red'))
     print("by @hagg4r")
 
