@@ -7,7 +7,7 @@ import argparse
 import os
 import subprocess
 
-print("python x4**p-scan https://target.com")
+print("python web_recon_sql_injection_improved.py https://target.com")
 
 
 def banner():
@@ -16,7 +16,7 @@ def banner():
     print("by @hagg4r")
 
 def parse_arguments():
-    parser = argparse.ArgumentParser(description="x4**p-scan")
+    parser = argparse.ArgumentParser(description="web-scanner")
     parser.add_argument("target", help="Target website to scan")
     return parser.parse_args()
 
