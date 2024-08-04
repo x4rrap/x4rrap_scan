@@ -1,108 +1,81 @@
-import argparse
 import requests
 from bs4 import BeautifulSoup
-from urllib.parse import urljoin
-import subprocess
-import os
+import pyfiglet
+from termcolor import colored
 import re
-import socket
+import argparse
 
-print("by hagg4r")
+def banner():
+    ascii_banner = pyfiglet.figlet_format("Web Recon Scanner")
+    print(colored(ascii_banner, 'green'))
 
-def is_admin_page(url):
-    return "admin" in url.lower() or "login" in url.lower()
+def parse_arguments():
+    parser = argparse.ArgumentParser(description="Web Recon Scanner")
+    parser.add_argument("target", help="Target website to scan")
+    return parser.parse_args()
 
-def extract_credentials(form):
-    username_field = form.find("input", {"name": "username"}) or form.find("input", {"id": "username"})
-    password_field = form.find("input", {"name": "password"}) or form.find("input", {"id": "password"})
-
-    if username_field and password_field:
-        username = username_field["value"] if "value" in username_field.attrs else ""
-        password = password_field["value"] if "value" in password_field.attrs else ""
-        return username, password
-
-    username_pattern = r'name="username" value="([^"]+)"'
-    password_pattern = r'name="password" value="([^"]+)"'
-    username = re.search(username_pattern, form.prettify(), re.IGNORECASE)
-    password = re.search(password_pattern, form.prettify(), re.IGNORECASE)
-
-    if username and password:
-        return username.group(1), password.group(1)
-
-    return "", ""
-
-def bypass_protection(session, url):
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': url
-    }
-    response = session.get(url, headers=headers)
-    return response
-
-def scan_ports(target):
-    print(f"[*] Scanning ports on {target}")
-    result = subprocess.run(['nmap', '-p-', '--open', target], capture_output=True, text=True)
-    open_ports = []
-    for line in result.stdout.splitlines():
-        if "/tcp" in line and "open" in line:
-            port = line.split("/")[0]
-            open_ports.append(port)
-    return open_ports
-
-def save_results(credentials, filename):
-    with open(filename, 'w') as file:
-        file.write("\n".join(credentials))
-    print(f"[+] Results saved to {filename}")
-
-def main(args):
+def bypass_cloudflare(target):
     session = requests.Session()
+    session.headers.update({'User-Agent': 'Mozilla/5.0'})
+    response = session.get(f"https://api.bypasscf.com/api/{target}?key=YOUR_BYPASSCF_API_KEY")
+    if response.status_code == 200:
+        return response.json()['result']
+    else:
+        print(colored("Failed to bypass Cloudflare.", 'red'))
+        return None
 
-    # Get public IP address of the target system
-    target_ip = socket.gethostbyname(socket.gethostname())
-    print(f"[*] Target IP: {target_ip}")
+def find_emails(target):
+    response = requests.get(target)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', soup.get_text())
+    return list(set(emails))
 
-    # Use the target IP for port scanning
-    args.target = target_ip
+def find_credentials(target):
+    credentials = []
+    response = requests.get(target)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    for form in soup.find_all('form'):
+        action = form.get('action')
+        method = form.get('method', 'GET').upper()
+        inputs = [input.get('name') for input in form.find_all('input') if input.get('name')]
+        credentials.append((action, method, inputs))
+    return credentials
 
-    response = bypass_protection(session, args.url)
+def find_admin_pages(target):
+    admin_pages = []
+    response = requests.get(target)
+    soup = BeautifulSoup(response.text, 'html.parser')
+    for link in soup.find_all('a'):
+        href = link.get('href')
+        if href and 'admin' in href.lower():
+            admin_pages.append(href)
+    return admin_pages
 
-    soup = BeautifulSoup(response.text, "html.parser")
+def main():
+    banner()
+    args = parse_arguments()
+    target = args.target
 
-    form = soup.find("form", {"method": "post"})
-    if form and is_admin_page(args.url):
-        username, password = extract_credentials(form)
-        if username and password:
-            credentials = f"{username}:{password}"
-            print(f"[+] Found credentials: {credentials}")
-            desktop_path = os.path.join(os.path.join(os.environ['USERPROFILE']), 'Desktop') if os.name == 'nt' else os.path.join(os.path.expanduser('~'), 'Desktop')
-            result_file = os.path.join(desktop_path, "found_credentials.txt")
-            save_results([credentials], result_file)
-            return
+    print(colored(f"\n[*] Target: {target}", 'yellow'))
 
-    links = [urljoin(args.url, a["href"]) for a in soup.find_all("a", href=True)]
+    bypassed_target = bypass_cloudflare(target)
+    if bypassed_target:
+        target = bypassed_target
 
-    open_ports = scan_ports(args.target)
-    print(f"[+] Open ports: {', '.join(open_ports)}")
+        print(colored("\n[*] Found emails:", 'yellow'))
+        emails = find_emails(target)
+        for email in emails:
+            print(f"- {email}")
 
-    for link in links:
-        if is_admin_page(link):
-            print(f"[*] Found potential admin page: {link}")
-            response = bypass_protection(session, link)
-            soup = BeautifulSoup(response.text, "html.parser")
-            form = soup.find("form", {"method": "post"})
-            if form:
-                username, password = extract_credentials(form)
-                if username and password:
-                    credentials = f"{username}:{password}"
-                    print(f"[+] Found credentials: {credentials}")
-                    result_file = os.path.join(desktop_path, "found_credentials.txt")
-                    save_results([credentials], result_file)
-                    break
+        print(colored("\n[*] Found potential credentials:", 'yellow'))
+        credentials = find_credentials(target)
+        for cred in credentials:
+            print(f"- Action: {cred[0]}, Method: {cred[1]}, Inputs: {', '.join(cred[2])}")
+
+        print(colored("\n[*] Found potential admin pages:", 'yellow'))
+        admin_pages = find_admin_pages(target)
+        for page in admin_pages:
+            print(f"- {page}")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AutAutomated web scanner for admin pages and credential extraction")
-    parser.add_argument("url", help="Target URL")
-    parser.add_argument("--target", help="Target IP or hostname for port scanning (default: public IP of the target system)")
-    args = parser.parse_args()
-
-    main(args)
+    main()
